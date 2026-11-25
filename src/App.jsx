@@ -1,127 +1,162 @@
+
 import { useEffect, useState } from 'react';
-import FormularioChamado from './components/FormularioChamado.jsx';
-import CartaoChamado from './components/CartaoChamado.jsx';
-import { atualizarChamado, criarChamado, excluirChamado, listarChamados } from './services/chamadosApi.js';
+
+import FormularioProduto from './components/FormularioProduto.jsx';
+import CartaoProduto from './components/CartaoProduto.jsx';
+
+import {
+    listarProdutos,
+    criarProduto,
+    atualizarProduto,
+    excluirProduto
+} from './services/produtosApi.js';
 
 export default function App() {
-  const [chamados, setChamados] = useState([]);
-  const [carregando, setCarregando] = useState(true);
-  const [falhaLista, setFalhaLista] = useState(false);
-  const [salvando, setSalvando] = useState(false);
-  const [busca, setBusca] = useState('');
-  const [filtro, setFiltro] = useState('todos');
-  const [aviso, setAviso] = useState('');
+    const [produtos, setProdutos] = useState([]);
+    const [produtoEditando, setProdutoEditando] = useState(null);
 
-  useEffect(() => {
-    const controle = new AbortController();
-    async function carregar() {
-      try {
-        const lista = await listarChamados(controle.signal);
-        if (!Array.isArray(lista)) throw new Error('A API deve retornar uma lista.');
-        if (!controle.signal.aborted) setChamados(lista);
-      } catch (erro) {
-        if (controle.signal.aborted) return;
-        setFalhaLista(true);
-        setAviso(`Não foi possível carregar os chamados. ${erro.message}`);
-      } finally {
-        if (!controle.signal.aborted) setCarregando(false);
-      }
+    const [carregando, setCarregando] = useState(true);
+    const [salvando, setSalvando] = useState(false);
+    const [erro, setErro] = useState('');
+
+    useEffect(() => {
+        async function carregarProdutos() {
+            try {
+                const dados = await listarProdutos();
+
+                if (!Array.isArray(dados)) {
+                    throw new Error('A API não retornou uma lista de produtos.');
+                }
+
+                setProdutos(dados);
+            } catch (error) {
+                setErro(error.message);
+            } finally {
+                setCarregando(false);
+            }
+        }
+
+        carregarProdutos();
+    }, []);
+
+    async function salvarProduto(dados) {
+        setSalvando(true);
+        setErro('');
+
+        try {
+            if (produtoEditando) {
+                const atualizado = await atualizarProduto(
+                    produtoEditando.id,
+                    dados
+                );
+
+                setProdutos(atuais =>
+                    atuais.map(item =>
+                        item.id === atualizado.id ? atualizado : item
+                    )
+                );
+
+                setProdutoEditando(null);
+            } else {
+                const novo = await criarProduto(dados);
+
+                setProdutos(atuais => [novo, ...atuais]);
+            }
+
+            return true;
+        } catch (error) {
+            setErro(error.message);
+            return false;
+        } finally {
+            setSalvando(false);
+        }
     }
-    carregar();
-    return () => controle.abort();
-  }, []);
 
-  async function salvar(acao, mensagem) {
-    if (carregando || falhaLista || salvando) return false;
-    setSalvando(true);
-    setAviso('');
-    try {
-      await acao();
-      return true;
-    } catch (erro) {
-      setAviso(`${mensagem} ${erro.message}`);
-      return false;
-    } finally {
-      setSalvando(false);
+    async function removerProduto(id) {
+        const confirmar = window.confirm(
+            'Deseja realmente excluir este produto?'
+        );
+
+        if (!confirmar) return;
+
+        setSalvando(true);
+        setErro('');
+
+        try {
+            await excluirProduto(id);
+
+            setProdutos(atuais =>
+                atuais.filter(item => item.id !== id)
+            );
+
+            if (produtoEditando?.id === id) {
+                setProdutoEditando(null);
+            }
+        } catch (error) {
+            setErro(error.message);
+        } finally {
+            setSalvando(false);
+        }
     }
-  }
 
-  function adicionar(dados) {
-    return salvar(async () => {
-      const novo = await criarChamado(dados);
-      setChamados(atuais => [novo, ...atuais]);
-    }, 'Não foi possível criar o chamado.');
-  }
+    return (
+        <main>
+            <header>
+                <p className="marca">MONOLITO · GERENCIAMENTO</p>
+                <h1>Produtos</h1>
+                <p>Cadastre, consulte, edite e exclua produtos.</p>
+            </header>
 
-  function alternar(id) {
-    const chamado = chamados.find(item => item.id === id);
-    if (!chamado) return;
-    return salvar(async () => {
-      const atualizado = await atualizarChamado(id, !chamado.resolvido);
-      setChamados(atuais => atuais.map(item => item.id === id ? atualizado : item));
-    }, 'Não foi possível atualizar o chamado.');
-  }
+            <section className="resumo">
+                <p>
+                    <strong>{produtos.length}</strong>
+                    Produtos cadastrados
+                </p>
+            </section>
 
-  function excluir(id) {
-    return salvar(async () => {
-      await excluirChamado(id);
-      setChamados(atuais => atuais.filter(item => item.id !== id));
-    }, 'Não foi possível excluir o chamado.');
-  }
+            {erro && (
+                <p className="erro" role="alert">
+                    {erro}
+                </p>
+            )}
 
-  const abertos = chamados.filter(item => !item.resolvido).length;
-  const visiveis = chamados.filter(item => {
-    const correspondeBusca = item.titulo.toLocaleLowerCase('pt-BR')
-      .includes(busca.trim().toLocaleLowerCase('pt-BR'));
-    const correspondeStatus = filtro === 'todos' ||
-      (filtro === 'abertos' && !item.resolvido) ||
-      (filtro === 'resolvidos' && item.resolvido);
-    return correspondeBusca && correspondeStatus;
-  });
+            <div className="colunas">
+                <FormularioProduto
+                    key={produtoEditando?.id ?? 'novo'}
+                    produto={produtoEditando}
+                    aoSalvar={salvarProduto}
+                    aoCancelar={() => setProdutoEditando(null)}
+                    desabilitado={carregando || salvando}
+                />
 
-  return (
-    <main>
-      <header>
-        <p className="marca">NOVA ROMA · PROJETO DIDÁTICO</p>
-        <h1>HelpDesk Acadêmico</h1>
-        <p>Organize os problemas do campus em um só lugar.</p>
-      </header>
-      <section className="resumo" aria-label="Resumo dos chamados">
-        <p><strong>{chamados.length}</strong> chamados</p>
-        <p><strong>{abertos}</strong> em aberto</p>
-        <p><strong>{chamados.length - abertos}</strong> resolvidos</p>
-      </section>
-      {aviso && <p className="erro" role="status">{aviso}</p>}
-      <div className="colunas">
-        <FormularioChamado aoAdicionar={adicionar} desabilitado={carregando || falhaLista || salvando} />
-        <section className="painel" aria-labelledby="titulo-lista">
-          <h2 id="titulo-lista">Acompanhar chamados</h2>
-          <div className="filtros">
-            <div>
-              <label htmlFor="busca">Buscar pelo título</label>
-              <input id="busca" type="search" value={busca}
-                onChange={e => setBusca(e.target.value)} placeholder="Digite para buscar" />
+                <section className="painel">
+                    <h2>Lista de produtos</h2>
+
+                    {carregando && <p>Carregando produtos...</p>}
+
+                    {!carregando && produtos.length === 0 && (
+                        <p>Nenhum produto cadastrado.</p>
+                    )}
+
+                    {!carregando && produtos.length > 0 && (
+                        <ul>
+                            {produtos.map(produto => (
+                                <CartaoProduto
+                                    key={produto.id}
+                                    produto={produto}
+                                    aoEditar={() => setProdutoEditando(produto)}
+                                    aoExcluir={() => removerProduto(produto.id)}
+                                    desabilitado={salvando}
+                                />
+                            ))}
+                        </ul>
+                    )}
+                </section>
             </div>
-            <div>
-              <label htmlFor="filtro">Situação</label>
-              <select id="filtro" value={filtro} onChange={e => setFiltro(e.target.value)}>
-                <option value="todos">Todos</option>
-                <option value="abertos">Em aberto</option>
-                <option value="resolvidos">Resolvidos</option>
-              </select>
-            </div>
-          </div>
-          {carregando && <p role="status">Carregando chamados…</p>}
-          {!carregando && !falhaLista && <p role="status">{visiveis.length} chamado(s) encontrado(s).</p>}
-          {!carregando && !falhaLista && (visiveis.length === 0 ? <p className="vazio">Nenhum chamado encontrado. Cadastre um ou ajuste os filtros.</p> : (
-            <ul>{visiveis.map(chamado => (
-              <CartaoChamado key={chamado.id} chamado={chamado}
-                aoAlternar={alternar} aoExcluir={excluir} desabilitado={salvando} />
-            ))}</ul>
-          ))}
-        </section>
-      </div>
-      <footer>Exemplo educacional · Chamados gerenciados pela API.</footer>
-    </main>
-  );
+
+            <footer>
+                Gerenciamento de produtos integrado ao backend Monolito.
+            </footer>
+        </main>
+    );
 }
